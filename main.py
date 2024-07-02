@@ -7,7 +7,7 @@ import argparse
 import numpy as np
 import torch
 from load_data import DATA, PID_DATA
-from run import train, test
+from run import test_small, train, test
 from utils import try_makedirs, load_model, get_file_name_identifier
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -32,6 +32,9 @@ def train_one_dataset(params, file_name, train_q_data, train_qa_data, train_pid,
     all_valid_accuracy = {}
     all_valid_auc = {}
     best_valid_auc = 0
+    best_state = dict()
+    best_opti = dict()
+    best_loss = int()
 
     for idx in range(params.max_iter):
         # Train Model
@@ -66,17 +69,42 @@ def train_one_dataset(params, file_name, train_q_data, train_qa_data, train_pid,
                 os.remove(i)
             best_valid_auc = valid_auc
             best_epoch = idx+1
-            torch.save({'epoch': idx,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'loss': train_loss,
-                        },
-                       os.path.join('model', params.model, params.save,
-                                    file_name)+'_' + str(idx+1)
-                       )
+            best_state = model.state_dict()
+            best_opti = optimizer.state_dict()
+            best_loss = train_loss
+
+            # torch.save({'epoch': idx,
+            #             'model_state_dict': model.state_dict(),
+            #             'optimizer_state_dict': optimizer.state_dict(),
+            #             'loss': train_loss,
+            #             },
+            #            os.path.join('model', params.model, params.save,
+            #                         file_name)+'_' + str(idx+1)
+            #            )
         if idx-best_epoch > 40:
             break   
 
+    path = os.path.join('model', params.model,
+                        params.save,  file_name) + '_*'
+    for i in glob.glob(path):
+        os.remove(i)
+    
+    torch.save({'epoch': best_epoch-1,
+                'model_state_dict': best_state,
+                'optimizer_state_dict': best_opti,
+                'loss': best_loss,
+                },
+                os.path.join('model', params.model, params.save,
+                            file_name)
+                )
+    # torch.save({'epoch': best_epoch-1,
+    #             'model_state_dict': best_state,
+    #             'optimizer_state_dict': best_opti,
+    #             'loss': best_loss,
+    #             },
+    #             os.path.join('model', params.model, params.save,
+    #                         file_name) + '_'+str(best_epoch)
+    #             )
     try_makedirs('result')
     try_makedirs(os.path.join('result', params.model))
     try_makedirs(os.path.join('result', params.model, params.save))
@@ -92,12 +120,12 @@ def train_one_dataset(params, file_name, train_q_data, train_qa_data, train_pid,
     return best_epoch
 
 
-def test_one_dataset(params, file_name, test_q_data, test_qa_data, test_pid,  best_epoch):
-    print("\n\nStart testing ......................\n Best epoch:", best_epoch)
+def test_one_dataset(params, file_name, test_q_data, test_qa_data, test_pid):
+    print("\n\nStart testing ......................\n Best epoch:")
     model = load_model(params)
 
     checkpoint = torch.load(os.path.join(
-        'model', params.model, params.save, file_name) + '_'+str(best_epoch))
+        'model', params.model, params.save, file_name), map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
 
     test_loss, test_accuracy, test_auc = test(
@@ -107,9 +135,26 @@ def test_one_dataset(params, file_name, test_q_data, test_qa_data, test_pid,  be
     print("test_loss\t", test_loss)
 
     # Now Delete all the models
-    path = os.path.join('model', params.model, params.save,  file_name) + '_*'
-    for i in glob.glob(path):
-        os.remove(i)
+    # path = os.path.join('model', params.model, params.save,  file_name) + '_*'
+    # for i in glob.glob(path):
+    #     os.remove(i)
+
+
+def test_one_datum(params, file_name, test_q_data, test_qa_data, test_pid):
+    print("\n\nStart testing ......................\n")
+    model = load_model(params)
+    print(file_name)
+    checkpoint = torch.load(os.path.join(
+        'model', params.model, params.save, file_name), map_location=device)
+    model.load_state_dict(checkpoint['model_state_dict'])
+
+    test_small(
+        model, params, None, test_q_data, test_qa_data, test_pid, label='Test')
+
+    # Now Delete all the models
+    # path = os.path.join('model', params.model, params.save,  file_name) + '_*'
+    # for i in glob.glob(path):
+    #     os.remove(i)
 
 
 if __name__ == '__main__':
@@ -252,4 +297,4 @@ if __name__ == '__main__':
     test_q_data, test_qa_data, test_index = dat.load_data(
         test_data_path)
     test_one_dataset(params, file_name, test_q_data,
-                     test_qa_data, test_index, best_epoch)
+                     test_qa_data, test_index)

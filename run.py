@@ -204,8 +204,119 @@ def test(net, params, optimizer, q_data, qa_data, pid_data, label):
 
     all_pred = np.concatenate(pred_list, axis=0)
     all_target = np.concatenate(target_list, axis=0)
+
+    pred_cast = []
+    for i in range(len(all_pred)):
+        if all_pred[i] >= 0.5:
+            pred_cast.append(1)
+        else:
+            pred_cast.append(0)
+
+    print(pred_cast[:10], pred_cast[-10:])
+    print(all_target[:10], all_target[-10:])
+    
     loss = binaryEntropy(all_target, all_pred)
     auc = compute_auc(all_target, all_pred)
     accuracy = compute_accuracy(all_target, all_pred)
 
     return loss, accuracy, auc
+
+
+def test_small(net, params, optimizer, q_data, qa_data, pid_data, label):
+    # dataArray: [ array([[],[],..])] Shape: (3633, 200)
+    pid_flag, model_type = model_isPid_type(params.model)
+    net.eval()
+    N = int(math.ceil(float(len(q_data)) / float(params.batch_size)))
+    q_data = q_data.T  # Shape: (200,3633)
+    qa_data = qa_data.T  # Shape: (200,3633)
+    if pid_flag:
+        pid_data = pid_data.T
+    seq_num = q_data.shape[1]
+    pred_list = []
+    target_list = []
+
+    count = 0
+    true_el = 0
+    element_count = 0
+    for idx in range(N):
+
+        q_one_seq = q_data[:, idx*params.batch_size:(idx+1)*params.batch_size]
+        if pid_flag:
+            pid_one_seq = pid_data[:, idx *
+                                   params.batch_size:(idx+1) * params.batch_size]
+        input_q = q_one_seq[:, :]  # Shape (seqlen, batch_size)
+        qa_one_seq = qa_data[:, idx *
+                             params.batch_size:(idx+1) * params.batch_size]
+        input_qa = qa_one_seq[:, :]  # Shape (seqlen, batch_size)
+
+        # print 'seq_num', seq_num
+        if model_type in transpose_data_model:
+            # Shape (seqlen, batch_size)
+            input_q = np.transpose(q_one_seq[:, :])
+            # Shape (seqlen, batch_size)
+            input_qa = np.transpose(qa_one_seq[:, :])
+            target = np.transpose(qa_one_seq[:, :])
+            if pid_flag:
+                input_pid = np.transpose(pid_one_seq[:, :])
+        else:
+            input_q = (q_one_seq[:, :])  # Shape (seqlen, batch_size)
+            input_qa = (qa_one_seq[:, :])  # Shape (seqlen, batch_size)
+            target = (qa_one_seq[:, :])
+            if pid_flag:
+                input_pid = (pid_one_seq[:, :])
+        target = (target - 1) / params.n_question
+        target_1 = np.floor(target)
+        #target = np.random.randint(0,2, size = (target.shape[0],target.shape[1]))
+
+        input_q = torch.from_numpy(input_q).long().to(device)
+        input_qa = torch.from_numpy(input_qa).long().to(device)
+        target = torch.from_numpy(target_1).float().to(device)
+        if pid_flag:
+            input_pid = torch.from_numpy(input_pid).long().to(device)
+
+        with torch.no_grad():
+            if pid_flag:
+                loss, pred, ct = net(input_q, input_qa, target, input_pid)
+            else:
+                loss, pred, ct = net(input_q, input_qa, target)
+        pred = pred.cpu().numpy()  # (seqlen * batch_size, 1)
+        true_el += ct.cpu().numpy()
+        #target = target.cpu().numpy()
+        if (idx + 1) * params.batch_size > seq_num:
+            real_batch_size = seq_num - idx * params.batch_size
+            count += real_batch_size
+        else:
+            count += params.batch_size
+
+        # correct: 1.0; wrong 0.0; padding -1.0
+        target = target_1.reshape((-1,))
+        nopadding_index = np.flatnonzero(target >= -0.9)
+        nopadding_index = nopadding_index.tolist()
+        pred_nopadding = pred[nopadding_index]
+        target_nopadding = target[nopadding_index]
+
+        element_count += pred_nopadding.shape[0]
+        # print avg_loss
+        pred_list.append(pred_nopadding)
+        target_list.append(target_nopadding)
+
+    assert count == seq_num, "Seq not matching"
+
+    all_pred = np.concatenate(pred_list, axis=0)
+    all_target = np.concatenate(target_list, axis=0)
+
+    pred_cast = []
+    for i in range(len(all_pred)):
+        if all_pred[i] >= 0.5:
+            pred_cast.append(1)
+        else:
+            pred_cast.append(0)
+
+    print(pred_cast)
+    print(all_target)
+    
+    # loss = binaryEntropy(all_target, all_pred)
+    # auc = compute_auc(all_target, all_pred)
+    # accuracy = compute_accuracy(all_target, all_pred)
+
+    # return loss, accuracy, auc

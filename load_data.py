@@ -144,9 +144,9 @@ class PID_DATA(object):
                             answer_sequence.append(Xindex)
                         else:
                             print(Q[i])
-                    q_data.append(question_sequence)
-                    qa_data.append(answer_sequence)
-                    p_data.append(problem_sequence)
+                    q_data.append(question_sequence)    # skill IDs
+                    qa_data.append(answer_sequence)     # answers == skill ID + (isCorrect * number of questions)
+                    p_data.append(problem_sequence)     # question IDs
 
         f_data.close()
         ### data: [[],[],[],...] <-- set_max_seqlen is used
